@@ -119,3 +119,26 @@ html, body {
 input[type="checkbox"] {
   vertical-align: middle;
 }
+#hud-right {
+  right: 8px;
+  text-align: right;
+}
+
+#progressBarContainer {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+#progressBarFill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #44ff88, #ffe066, #ff6666);
+  transition: width 0.15s ease-out;
+}
