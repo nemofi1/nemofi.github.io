@@ -35,12 +35,26 @@ const PR=PX+PW, PB=PY+PH;
 const CFG={
   P_SPEED:3.6, P_FOCUS:1.75,
   P_HIT_R:3,   P_GRAZE_R:15,
-  P_LIVES:3,   P_BOMBS:3,
+  P_LIVES:5,   P_BOMBS:5,
   IFRAMES:115, RESPAWN:60,
   COMBO_DECAY:240,
   MAX_BULLETS:2400, MAX_PARTICLES:1600,
   SCORE_GRAZE:10,   SCORE_ITEM:500,
 };
+
+// 難易度プリセット
+const DIFF_PRESETS=[
+  { id:'easy',   label:'かんたん', color:'#4f8',
+    lives:5, bombs:5, powerPenalty:0.5,
+    lifeDrop:0.20, powerDrop:0.30, diffScale:1.1, diffCap:2.0 },
+  { id:'normal', label:'ふつう',   color:'#ff8',
+    lives:3, bombs:3, powerPenalty:1.0,
+    lifeDrop:0.10, powerDrop:0.15, diffScale:1.4, diffCap:2.3 },
+  { id:'hard',   label:'むずかしい', color:'#f44',
+    lives:2, bombs:2, powerPenalty:2.0,
+    lifeDrop:0.04, powerDrop:0.05, diffScale:1.8, diffCap:2.6 },
+];
+let ACTIVE_DIFF=DIFF_PRESETS[0];
 
 const U={
   lerp:(a,b,t)=>a+(b-a)*t,
@@ -349,7 +363,7 @@ class Enemy{
 class Boss{
   constructor(){
     this.x=PX+PW/2;this.y=PY-80;this.targetX=this.x;this.targetY=PY+90;this.r=30;
-    this.totalHp=this.totalMaxHp=2800;this.phaseThresh=[1600,700];this.phase=0;
+    this.totalHp=this.totalMaxHp=14000;this.phaseThresh=[9000,4000];this.phase=0;
     this.alive=true;this.dead=false;this.dying=false;this._deadFired=false;
     this.dyingT=0;this.age=0;this.phaseAge=0;this.flashT=0;this.inTransition=false;this.transT=0;
     this.moveT=0;this.spiralA=0;this.laserCharge=false;this.laserChargeT=0;this.laserA=0;
@@ -549,7 +563,7 @@ class Player{
     if(this.iframes>0||this.bombActive)return false;
     ps.playerDie(this.x,this.y);sfx.sfx('pDie');
     this.lives--;this.combo=0;this.comboT=0;this.comboMult=1;
-    this.power=Math.max(0,this.power-2);
+    this.power=Math.max(0,this.power-ACTIVE_DIFF.powerPenalty);
     this.iframes=CFG.IFRAMES;this.respawning=true;this.respawnT=CFG.RESPAWN;
     if(this.lives<0)this.alive=false;
     return true;
@@ -669,38 +683,285 @@ function updateBullet(b,ps){
 function makeWaves(){
   const waves=[];
   const mkE=(x,y,c,s,hp,si,sf,opts={})=>{const e=new Enemy(x,y,hp,{color:c,shape:s,score:150+(hp|0)*0.5,...opts});e.shootInt=si;e.shootFn=sf;return e;};
+
+  // ══════════════════════════════════════════════════════
+  //  序盤 EARLY  (0〜4分)  Wave 1〜11
+  //  Waveの間隔を詰めてテンポよく。螺旋は弾数・速度を抑える。
+  // ══════════════════════════════════════════════════════
+
+  // W1 (0秒): チュートリアル妖精 4体
   waves.push({at:0,enemies:()=>{
-    const out=[];for(let i=0;i<5;i++){const x=PX+60+i*(PW-120)/4;
-      out.push(mkE(x,PY-20,'#4af','fairy',40,70,(e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.2*D,1,0,{r:4,color:'#4af',tColor:'#4af',shape:'orb'}),{vy:1.0,moveFn:e=>{e.y+=e.vy;if(e.y>PY+140)e.vy=0;}}));}
+    const out=[];for(let i=0;i<4;i++){const x=PX+80+i*(PW-160)/3;
+      out.push(mkE(x,PY-20,'#4af','fairy',30,100,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,1.5,1,0,{r:4,color:'#4af',tColor:'#4af',shape:'orb'}),
+        {vy:0.9,moveFn:e=>{e.y+=e.vy;if(e.y>PY+140)e.vy=0;}}));}
     return out;
   }});
+
+  // W2 (7秒): サイド精霊 左右2体
   waves.push({at:420,enemies:()=>{
-    const out=[];[-1,1].forEach(side=>{for(let i=0;i<3;i++){const x=side<0?PX-20:PR+20,y=PY+80+i*80;
-      const e=mkE(x,y,'#f84','spirit',55,90,(e,px,py,D)=>BP.spread(e.x,e.y,side<0?0:Math.PI,3,0.5,2.5*D,{r:4,color:'#f84',tColor:'#f84',shape:'orb'}),{vx:side*1.4,vy:0});
-      const cap=side<0?PX+70:PR-70;e.moveFn=en=>{en.x+=en.vx;en.y+=en.vy;if(side<0&&en.x>cap)en.vx=0;if(side>0&&en.x<cap)en.vx=0;};out.push(e);}});
+    const out=[];[-1,1].forEach(side=>{for(let i=0;i<2;i++){const x=side<0?PX-20:PR+20,y=PY+90+i*100;
+      const e=mkE(x,y,'#f84','spirit',45,120,
+        (e,px,py,D)=>BP.spread(e.x,e.y,side<0?0:Math.PI,3,0.45,1.7,{r:4,color:'#f84',tColor:'#f84',shape:'orb'}),
+        {vx:side*1.3,vy:0});
+      const cap=side<0?PX+75:PR-75;
+      e.moveFn=en=>{en.x+=en.vx;en.y+=en.vy;if(side<0&&en.x>cap)en.vx=0;if(side>0&&en.x<cap)en.vx=0;};
+      out.push(e);}});
     return out;
   }});
-  waves.push({at:900,enemies:()=>{
-    const out=[];for(let i=0;i<4;i++){const x=PX+70+i*(PW-140)/3;
-      out.push(mkE(x,PY-20,'#f4f','diamond',65,120,(e,px,py,D)=>BP.ring(e.x,e.y,10,2.5*D,e.age*0.05,{r:4,color:'#f4f',tColor:'#f4f',shape:'star'}),{vy:0.8,moveFn:e=>{e.y+=e.vy;if(e.y>PY+100)e.vy=0;}}));}
+
+  // W3 (14秒): リングダイヤモンド 3体 ★螺旋弱体化: 5弾→4弾、速度1.8→1.5
+  waves.push({at:840,enemies:()=>{
+    const out=[];for(let i=0;i<3;i++){const x=PX+90+i*(PW-180)/2;
+      out.push(mkE(x,PY-20,'#f4f','diamond',55,140,
+        (e,px,py,D)=>BP.ring(e.x,e.y,4,1.5,e.age*0.04,{r:4,color:'#f4f',tColor:'#f4f',shape:'star'}),
+        {vy:0.75,moveFn:e=>{e.y+=e.vy;if(e.y>PY+110)e.vy=0;}}));}
     return out;
   }});
-  waves.push({at:1500,enemies:()=>{
-    const out=[];for(let i=0;i<6;i++){const angle=i*(Math.PI*2/6),cx=PX+PW/2,cy=PY+130;
-      const x=cx+U.cos(angle,90),y=cy+U.sin(angle,60);
-      out.push(mkE(x,y,'#8f4','fairy',70,85,(e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.8*D,3,0.35,{r:4,color:'#8f4',tColor:'#8f4',shape:'rice'}),{vy:0,shootPhase:Math.floor(i*12)}));}
+
+  // W4 (23秒): 照準弾 円形 4体
+  waves.push({at:1380,enemies:()=>{
+    const out=[];for(let i=0;i<4;i++){const angle=i*(Math.PI*2/4),cx=PX+PW/2,cy=PY+120;
+      const x=cx+U.cos(angle,80),y=cy+U.sin(angle,55);
+      out.push(mkE(x,y,'#8f4','fairy',60,110,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,1.8,2,0.3,{r:4,color:'#8f4',tColor:'#8f4',shape:'rice'}),
+        {vy:0,shootPhase:Math.floor(i*20)}));}
     return out;
   }});
-  waves.push({at:2200,enemies:()=>{
-    const out=[];[PX+100,PX+PW/2,PR-100].forEach((x,idx)=>{let spirA=idx*1.0;
-      out.push(mkE(x,PY-20,'#f48','spirit',150,3,(e,px,py,D)=>{spirA+=0.12;return BP.ring(e.x,e.y,6,2.6*D,spirA,{r:5,color:U.hsla(idx*80,100,65),tColor:U.hsla(idx*80,100,65),shape:'orb'});},{vy:0.7,moveFn:e=>{e.y+=e.vy;if(e.y>PY+120)e.vy=0;},score:600,r:20}));});
+
+  // W5 (35秒): スパイラル精霊 2体 ★螺旋弱体化: 5弾→3弾、間隔4→7、速度1.9→1.5
+  waves.push({at:2100,enemies:()=>{
+    const out=[];[PX+100,PR-100].forEach((x,idx)=>{let spirA=idx*Math.PI;
+      out.push(mkE(x,PY-20,'#f48','spirit',120,7,
+        (e,px,py,D)=>{spirA+=0.1;return BP.ring(e.x,e.y,3,1.5,spirA,{r:4,color:U.hsla(idx*100,100,65),tColor:U.hsla(idx*100,100,65),shape:'orb'});},
+        {vy:0.65,moveFn:e=>{e.y+=e.vy;if(e.y>PY+125)e.vy=0;},score:500,r:18}));});
     return out;
   }});
+
+  // W6 (50秒): 横一列妖精 6体
   waves.push({at:3000,enemies:()=>{
-    const out=[];for(let i=0;i<8;i++){const x=PX+30+i*(PW-60)/7;
-      out.push(mkE(x,PY-20,'#4ff','fairy',45,60,(e,px,py,D)=>BP.aimed(e.x,e.y,px,py,3.0*D,2,0.25,{r:4,color:'#4ff',tColor:'#4ff',shape:'rice'}),{vy:1.2,shootPhase:i*7}));}
+    const out=[];for(let i=0;i<6;i++){const x=PX+45+i*(PW-90)/5;
+      out.push(mkE(x,PY-20,'#4ff','fairy',45,90,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.0,2,0.2,{r:4,color:'#4ff',tColor:'#4ff',shape:'rice'}),
+        {vy:1.1,shootPhase:i*9}));}
     return out;
   }});
+
+  // W7 (1分6秒): 両サイド扇弾 3体ずつ
+  waves.push({at:3960,enemies:()=>{
+    const out=[];[-1,1].forEach(side=>{for(let i=0;i<3;i++){
+      const x=side<0?PX-20:PR+20,y=PY+60+i*90;
+      const e=mkE(x,y,'#fa4','spirit',75,110,
+        (e,px,py,D)=>BP.spread(e.x,e.y,side<0?0:Math.PI,4,0.55,1.9,{r:4,color:'#fa4',tColor:'#fa4',shape:'orb'}),
+        {vx:side<0?1.2:-1.2,vy:0});
+      const cap=side<0?PX+85:PR-85;
+      e.moveFn=en=>{en.x+=en.vx;en.y+=en.vy;if(side<0&&en.x>cap)en.vx=0;if(side>0&&en.x<cap)en.vx=0;};
+      out.push(e);}});
+    return out;
+  }});
+
+  // W8 (1分28秒): リング+照準 ダイヤモンド4体
+  waves.push({at:5280,enemies:()=>{
+    const out=[];for(let i=0;i<4;i++){const x=PX+70+i*(PW-140)/3;
+      out.push(mkE(x,PY-20,'#f9a','diamond',90,120,
+        (e,px,py,D)=>[...BP.ring(e.x,e.y,5,1.8,e.age*0.04,{r:4,color:'#f9a',tColor:'#f9a',shape:'star'}),
+          ...(e.age%150===0?BP.aimed(e.x,e.y,px,py,2.2,1,0,{r:4,color:'#fa0',tColor:'#fa0',shape:'rice'}):[])],
+        {vy:0.85,moveFn:e=>{e.y+=e.vy;if(e.y>PY+115)e.vy=0;}}));}
+    return out;
+  }});
+
+  // W9 (1分46秒): V字編隊 5体
+  waves.push({at:6360,enemies:()=>{
+    const out=[];const cx=PX+PW/2;
+    for(let i=0;i<5;i++){
+      const x=cx+(i-2)*65,y=PY-20-Math.abs(i-2)*30;
+      out.push(mkE(x,y,'#8af','fairy',80,90,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.1,2,0.35,{r:4,color:'#8af',tColor:'#8af',shape:'orb'}),
+        {vy:0.95,moveFn:e=>{e.y+=e.vy;if(e.y>PY+130)e.vy=0;}}));
+    }
+    return out;
+  }});
+
+  // W10 (2分10秒): スパイラル精霊トリオ ★螺旋弱体化: 7弾→4弾、間隔4→8、速度2.1→1.6
+  waves.push({at:7800,enemies:()=>{
+    const out=[];[PX+90,PX+PW/2,PR-90].forEach((x,idx)=>{let sp=idx*1.1;
+      out.push(mkE(x,PY+90,'#a4f','spirit',180,8,
+        (e,px,py,D)=>{sp+=0.10;return BP.ring(e.x,e.y,4,1.6,sp,{r:5,color:U.hsla(260+idx*35,100,68),tColor:U.hsla(260+idx*35,100,68),shape:'orb'});},
+        {vy:0,score:700,r:20,drops:['power','point','point']}));});
+    return out;
+  }});
+
+  // W11 (2分35秒): 序盤ラスト ミニエリート精霊 2体 ★螺旋弱体化: 7弾→4弾、速度2.1→1.7
+  waves.push({at:9300,enemies:()=>{
+    const out=[];[PX+PW*0.3,PX+PW*0.7].forEach((x,idx)=>{let sp=idx*Math.PI;
+      const e=mkE(x,PY+90,'#f2f','spirit',280,7,
+        (e,px,py,D)=>{sp+=0.09;const r=[];
+          r.push(...BP.ring(e.x,e.y,4,1.7,sp,{r:5,color:'#f2f',tColor:'#f2f',shape:'orb'}));
+          if(e.age%150===0)r.push(...BP.aimed(e.x,e.y,px,py,2.2,3,0.35,{r:4,color:'#fa4',tColor:'#fa4',shape:'rice'}));
+          return r;},
+        {vy:0,score:1500,r:22,drops:['power','power','point','point','point']});
+      out.push(e);});
+    return out;
+  }});
+
+  // ══════════════════════════════════════════════════════
+  //  中盤 MID  (4〜8分)  Wave 12〜18
+  // ══════════════════════════════════════════════════════
+
+  // W12 (3分10秒): 斜め流れ 6体
+  waves.push({at:11400,enemies:()=>{
+    const out=[];for(let i=0;i<6;i++){const x=PX+40+i*(PW-80)/5;
+      out.push(mkE(x,PY-20,'#4f8','fairy',100,100,
+        (e,px,py,D)=>BP.spread(e.x,e.y,Math.PI/2,3,0.45,2.2*D,{r:4,color:'#4f8',tColor:'#4f8',shape:'rice'}),
+        {vy:1.0,shootPhase:i*12}));
+    }
+    return out;
+  }});
+
+  // W13 (3分35秒): 十字4方向侵入
+  waves.push({at:12900,enemies:()=>{
+    const out=[];const cx=PX+PW/2,cy=PY+115;
+    [[cx,PY-20,0,1.1],[cx,PB+20,0,-1.1],[PX-20,cy,1.3,0],[PR+20,cy,-1.3,0]].forEach(([x,y,vx,vy],idx)=>{
+      const e=mkE(x,y,'#ff4','diamond',120,100,
+        (e,px,py,D)=>BP.ring(e.x,e.y,8,2.0*D,e.age*0.05,{r:4,color:'#ff4',tColor:'#ff4',shape:'star'}),
+        {vx,vy,moveFn:e=>{e.x+=e.vx;e.y+=e.vy;
+          if(idx===0&&e.y>PY+105)e.vy=0; if(idx===1&&e.y<PB-105)e.vy=0;
+          if(idx===2&&e.x>PX+105)e.vx=0; if(idx===3&&e.x<PR-105)e.vx=0;}});
+      out.push(e);
+    });
+    return out;
+  }});
+
+  // W14 (4分): 重スパイラル 2体 ★螺旋弱体化: 8弾→5弾、間隔3→6、速度2.3→1.8
+  waves.push({at:14400,enemies:()=>{
+    const out=[];[PX+PW*0.28,PX+PW*0.72].forEach((x,idx)=>{let sp=idx*2.1;
+      out.push(mkE(x,PY+85,'#a4f','spirit',240,6,
+        (e,px,py,D)=>{sp+=0.10;return BP.ring(e.x,e.y,5,1.8*D,sp,{r:5,color:U.hsla(260+idx*35,100,70),tColor:U.hsla(260+idx*35,100,70),shape:'orb'});},
+        {vy:0,score:1000,r:20,drops:['power','point','point']}));
+    });
+    return out;
+  }});
+
+  // W15 (4分25秒): 交互サイド割り込み 6体
+  waves.push({at:15900,enemies:()=>{
+    const out=[];for(let i=0;i<6;i++){
+      const side=i%2===0?-1:1;const x=side<0?PX-20:PR+20,y=PY+65+Math.floor(i/2)*95;
+      const e=mkE(x,y,'#4af','fairy',110,80,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.5*D,2,0.28,{r:4,color:'#4af',tColor:'#4af',shape:'rice'}),
+        {vx:side<0?1.4:-1.4,vy:0});
+      const cap=side<0?PX+95:PR-95;
+      e.moveFn=en=>{en.x+=en.vx;en.y+=en.vy;if(side<0&&en.x>cap)en.vx=0;if(side>0&&en.x<cap)en.vx=0;};
+      out.push(e);
+    }
+    return out;
+  }});
+
+  // W16 (4分50秒): フラワー精霊 3体
+  waves.push({at:17400,enemies:()=>{
+    const out=[];[PX+PW*0.2,PX+PW/2,PX+PW*0.8].forEach((x,idx)=>{
+      out.push(mkE(x,PY+100,'#f48','spirit',190,4,
+        (e,px,py,D)=>BP.flower(e.x,e.y,4,3,2.5*D,1.6*D,{r:5,color:'#f48',tColor:'#f48',shape:'star'}),
+        {vy:0,score:1000,r:20,drops:['power','point','point']}));
+    });
+    return out;
+  }});
+
+  // W17 (5分15秒): 密集妖精 8体
+  waves.push({at:18900,enemies:()=>{
+    const out=[];for(let i=0;i<8;i++){const x=PX+28+i*(PW-56)/7;
+      out.push(mkE(x,PY-20-i%2*40,'#ff8','fairy',90,85,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,2.6*D,2,0.22,{r:4,color:'#ff8',tColor:'#ff8',shape:'orb'}),
+        {vy:1.2,shootPhase:i*8}));
+    }
+    return out;
+  }});
+
+  // W18 (5分40秒): 中ボス 双螺旋ゴースト ★螺旋弱体化: 8+8弾→5+5弾、間隔3→6、速度2.3→1.8、照準弾5→4
+  waves.push({at:20400,enemies:()=>{
+    const out=[];let sp=0;let mt=0;
+    const e=mkE(PX+PW/2,PY+100,'#f0f','spirit',800,6,
+      (en,px,py,D)=>{sp+=0.09;const r=[];
+        r.push(...BP.ring(en.x,en.y,5,1.8*D,sp,{r:5,color:'#f0f',tColor:'#f0f',shape:'orb'}));
+        r.push(...BP.ring(en.x,en.y,5,1.8*D,-sp,{r:5,color:'#a0f',tColor:'#a0f',shape:'orb'}));
+        if(en.age%150===0)r.push(...BP.aimed(en.x,en.y,px,py,2.5*D,4,0.42,{r:5,color:'#fa0',tColor:'#fa0',shape:'rice'}));
+        return r;},
+      {vy:0,score:6000,r:28,drops:['power','power','life','point','point','point']});
+    e.moveFn=en=>{mt++;en.x=PX+PW/2+U.cos(mt*0.016)*120;};
+    out.push(e);
+    return out;
+  }});
+
+  // ══════════════════════════════════════════════════════
+  //  終盤 LATE  (7〜10分)  Wave 19〜23
+  // ══════════════════════════════════════════════════════
+
+  // W19 (6分10秒): 複合エリート 4体
+  waves.push({at:22200,enemies:()=>{
+    const out=[];for(let i=0;i<4;i++){const x=PX+70+i*(PW-140)/3;
+      out.push(mkE(x,PY-20,'#f88','diamond',160,85,
+        (e,px,py,D)=>[...BP.ring(e.x,e.y,7,2.5*D,e.age*0.04,{r:5,color:'#f88',tColor:'#f88',shape:'star'}),
+          ...BP.aimed(e.x,e.y,px,py,2.8*D,3,0.32,{r:4,color:'#fa8',tColor:'#fa8',shape:'rice'})],
+        {vy:0.9,moveFn:e=>{e.y+=e.vy;if(e.y>PY+120)e.vy=0;}}));
+    }
+    return out;
+  }});
+
+  // W20 (6分35秒): 重サイド 左右3体ずつ
+  waves.push({at:23700,enemies:()=>{
+    const out=[];[-1,1].forEach(side=>{
+      for(let i=0;i<3;i++){
+        const x=side<0?PX-20:PR+20,y=PY+65+i*110;
+        const e=mkE(x,y,'#8ff','spirit',175,3,
+          (e,px,py,D)=>{const r=[];
+            r.push(...BP.spread(e.x,e.y,side<0?0:Math.PI,5,0.55,2.8*D,{r:5,color:'#8ff',tColor:'#8ff',shape:'orb'}));
+            if(e.age%130===0)r.push(...BP.aimed(e.x,e.y,px,py,2.9*D,3,0.38,{r:4,color:'#4ff',tColor:'#4ff',shape:'rice'}));
+            return r;},
+          {vx:side<0?1.4:-1.4,vy:0,score:800,drops:['power','point','point']});
+        const cap=side<0?PX+100:PR-100;
+        e.moveFn=en=>{en.x+=en.vx;en.y+=en.vy;if(side<0&&en.x>cap)en.vx=0;if(side>0&&en.x<cap)en.vx=0;};
+        out.push(e);
+      }
+    });
+    return out;
+  }});
+
+  // W21 (7分): ウェーブ蛇行編隊 7体
+  waves.push({at:25200,enemies:()=>{
+    const out=[];for(let i=0;i<7;i++){const x=PX+35+i*(PW-70)/6;let wt=i*22;
+      const e=mkE(x,PY-20,'#af4','fairy',130,78,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,3.0*D,3,0.28,{r:4,color:'#af4',tColor:'#af4',shape:'rice'}),
+        {vy:0});
+      e.moveFn=en=>{wt++;en.x+=1.4*Math.sin(wt*0.055);en.y+=1.1;};
+      out.push(e);
+    }
+    return out;
+  }});
+
+  // W22 (7分25秒): ボス直前スパイラル 2体 ★螺旋弱体化: 10+8→6+5弾、間隔2→5、照準4→3
+  waves.push({at:26700,enemies:()=>{
+    const out=[];[PX+PW*0.28,PX+PW*0.72].forEach((x,idx)=>{let sp=idx*2.2;
+      out.push(mkE(x,PY+90,'#f84','spirit',380,5,
+        (e,px,py,D)=>{sp+=0.11;const r=[];
+          r.push(...BP.ring(e.x,e.y,6,2.4*D,sp,{r:5,color:U.hsla(20+idx*35,100,70),tColor:U.hsla(20+idx*35,100,70),shape:'orb'}));
+          r.push(...BP.ring(e.x,e.y,5,1.6*D,-sp,{r:4,color:U.hsla(55+idx*35,100,70),tColor:U.hsla(55+idx*35,100,70),shape:'star'}));
+          if(e.age%100===0)r.push(...BP.aimed(e.x,e.y,px,py,2.9*D,3,0.4,{r:5,color:'#ff4',tColor:'#ff4',shape:'rice'}));
+          return r;},
+        {vy:0,score:2500,r:22,drops:['power','power','point','point','point']}));
+    });
+    return out;
+  }});
+
+  // W23 (7分50秒): 最終Wave 大群
+  waves.push({at:28200,enemies:()=>{
+    const out=[];for(let i=0;i<10;i++){
+      const x=PX+25+i*(PW-50)/9,y=PY-20-i%3*30;
+      out.push(mkE(x,y,'#faf','fairy',100,72,
+        (e,px,py,D)=>BP.aimed(e.x,e.y,px,py,3.1*D,2,0.2,{r:4,color:'#faf',tColor:'#faf',shape:'orb'}),
+        {vy:1.3,shootPhase:i*6}));
+    }
+    return out;
+  }});
+
   return waves;
 }
 
@@ -719,7 +980,7 @@ class Game{
     scale();window.addEventListener('resize',scale);
     INPUT.init();
     this.sfx=new AudioEngine();this.ps=new Particles();this.bg=new Background();
-    this.state='title';this.player=new Player();
+    this.state='title';this.player=new Player();this.diffIdx=0;
     this.bullets=[];this.pBullets=[];this.items=[];this.enemies=[];this.floats=[];
     this.boss=null;this.bossWarned=false;this.bossDireFired=false;
     this.waves=makeWaves();this.waveIdx=0;this.frame=0;this.stageT=0;this.slowMoT=0;
@@ -728,6 +989,8 @@ class Game{
   }
 
   startGame(){
+    ACTIVE_DIFF=DIFF_PRESETS[this.diffIdx];
+    CFG.P_LIVES=ACTIVE_DIFF.lives;CFG.P_BOMBS=ACTIVE_DIFF.bombs;
     this.bullets=[];this.pBullets=[];this.items=[];this.enemies=[];this.floats=[];
     this.boss=null;this.bossWarned=false;this.bossDireFired=false;
     this.waveIdx=0;this.stageT=0;this.frame=0;this.slowMoT=0;
@@ -736,7 +999,7 @@ class Game{
   }
 
   spawnItems(x,y,drops){
-    drops.forEach(t=>{if(Math.random()<(t==='life'?0.04:t==='bomb'?0.06:0.85))this.items.push(new Item(x+U.rnd(-8,8),y+U.rnd(-8,8),t));});
+    drops.forEach(t=>{if(Math.random()<(t==='life'?ACTIVE_DIFF.lifeDrop:t==='bomb'?0.06:t==='power'?ACTIVE_DIFF.powerDrop:0.85))this.items.push(new Item(x+U.rnd(-8,8),y+U.rnd(-8,8),t));});
     for(let i=0;i<3;i++)this.items.push(new Item(x+U.rnd(-15,15),y+U.rnd(-12,12),'point'));
   }
 
@@ -746,6 +1009,8 @@ class Game{
 
     if(this.state==='title'){
       this.sakura.forEach(s=>{s.x+=s.vx;s.y+=s.vy;s.rot+=s.rv;if(s.y>CH+10)s.y=-10;if(s.x<-10)s.x=CW+10;if(s.x>CW+10)s.x=-10;});
+      if(INPUT.pressed('ArrowLeft')||INPUT.pressed('KeyA'))this.diffIdx=(this.diffIdx+2)%3;
+      if(INPUT.pressed('ArrowRight')||INPUT.pressed('KeyD'))this.diffIdx=(this.diffIdx+1)%3;
       if(INPUT.start)this.startGame();
       INPUT.update();return;
     }
@@ -757,14 +1022,19 @@ class Game{
     this.bg.update();this.ps.update();
     this.floats=this.floats.filter(f=>f.update());
     const isBoss=this.state==='bossBattle';
-    const diff=U.clamp(1.0+(this.stageT/3000)*0.8+(isBoss?0.2:0),1.0,2.5);
+    const diff=U.clamp(1.0+(this.stageT/36000)*ACTIVE_DIFF.diffScale+(isBoss?0.2:0),1.0,ACTIVE_DIFF.diffCap);
 
     if(this.state==='playing'){
       this.stageT++;
+      // 敵が全滅したら次Waveを最大180f(3秒)後に前倒し
+      if(this.enemies.length===0&&this.waveIdx<this.waves.length){
+        const nextAt=this.waves[this.waveIdx].at;
+        if(this.stageT<nextAt-180)this.stageT=nextAt-180;
+      }
       while(this.waveIdx<this.waves.length&&this.stageT>=this.waves[this.waveIdx].at){
         this.enemies.push(...this.waves[this.waveIdx].enemies());this.waveIdx++;
       }
-      if(this.stageT>3600&&this.enemies.length===0&&!this.bossWarned){
+      if(this.stageT>29400&&this.enemies.length===0&&!this.bossWarned){
         this.bossWarned=true;
         setTimeout(()=>{
           this.boss=new Boss();this.state='bossBattle';
@@ -776,7 +1046,7 @@ class Game{
 
     this.enemies=this.enemies.filter(e=>{
       const alive=e.update(this.player.x,this.player.y,this.bullets,diff);
-      if(!alive&&e.dead){this.ps.explode(e.x,e.y,['#f40','#fa0','#ff8','#fff'],12);this.sfx.sfx('eDie');this.spawnItems(e.x,e.y,e.drops);this.player.addScore(e.score,e.x,e.y,'#ff8',12,this.floats);}
+      if(!alive&&e.dead){this.ps.explode(e.x,e.y,['#f40','#fa0','#ff8','#fff'],12);this.sfx.sfx('eDie');this.spawnItems(e.x,e.y,e.drops);if(Math.random()<ACTIVE_DIFF.lifeDrop)this.items.push(new Item(e.x+U.rnd(-8,8),e.y+U.rnd(-8,8),'life'));if(Math.random()<ACTIVE_DIFF.powerDrop)this.items.push(new Item(e.x+U.rnd(-8,8),e.y+U.rnd(-8,8),'power'));this.player.addScore(e.score,e.x,e.y,'#ff8',12,this.floats);}
       return alive;
     });
 
@@ -909,11 +1179,47 @@ class Game{
     ctx.fillStyle='#050010';ctx.fillRect(0,0,CW,CH);
     this.sakura.forEach(s=>{ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.rot);ctx.globalAlpha=s.a;ctx.fillStyle=U.hsla(s.hue,80,75);ctx.beginPath();ctx.ellipse(0,0,s.r,s.r*1.8,0,0,Math.PI*2);ctx.fill();ctx.restore();});
     ctx.globalAlpha=1;
-    ctx.shadowBlur=35;ctx.shadowColor='#f48';ctx.fillStyle='#f9c';ctx.font='bold 38px serif';ctx.textAlign='center';ctx.fillText('幽霊神楽',CW/2,CH/2-60);
-    ctx.shadowBlur=15;ctx.shadowColor='#88f';ctx.fillStyle='#ccf';ctx.font='18px serif';ctx.fillText('〜 Phantom Kagura 〜',CW/2,CH/2-25);ctx.shadowBlur=0;
-    if(Math.floor(t/35)%2===0){ctx.fillStyle='#ffc';ctx.font='bold 13px monospace';ctx.fillText('Press Z / SPACE to Start',CW/2,CH/2+30);}
-    ctx.fillStyle='#558';ctx.font='11px monospace';
-    ['Arrow/WASD : Move','Z / Space  : Shot','X          : Bomb (clears bullets)','Shift      : Focus (slow + hitbox)'].forEach((line,i)=>ctx.fillText(line,CW/2,CH/2+65+i*18));
+    // タイトル
+    ctx.shadowBlur=35;ctx.shadowColor='#f48';ctx.fillStyle='#f9c';ctx.font='bold 38px serif';ctx.textAlign='center';ctx.fillText('幽霊神楽',CW/2,CH/2-80);
+    ctx.shadowBlur=15;ctx.shadowColor='#88f';ctx.fillStyle='#ccf';ctx.font='18px serif';ctx.fillText('〜 Phantom Kagura 〜',CW/2,CH/2-45);ctx.shadowBlur=0;
+    // 難易度選択
+    ctx.fillStyle='#aac';ctx.font='bold 12px monospace';ctx.fillText('DIFFICULTY',CW/2,CH/2+5);
+    const opts=DIFF_PRESETS;
+    const bw=108,bh=36,gap=12,totalW=opts.length*(bw+gap)-gap;
+    const bx0=CW/2-totalW/2;
+    opts.forEach((d,i)=>{
+      const bx=bx0+i*(bw+gap),by=CH/2+18;
+      const sel=i===this.diffIdx;
+      // 背景
+      ctx.fillStyle=sel?d.color:'#111';
+      if(sel){ctx.shadowBlur=18;ctx.shadowColor=d.color;}
+      ctx.beginPath();ctx.roundRect(bx,by,bw,bh,6);ctx.fill();
+      ctx.shadowBlur=0;
+      // 枠
+      ctx.strokeStyle=sel?d.color:'#334';ctx.lineWidth=sel?2:1;
+      ctx.beginPath();ctx.roundRect(bx,by,bw,bh,6);ctx.stroke();
+      // ラベル
+      ctx.fillStyle=sel?'#000':'#667';ctx.font=`bold ${sel?13:12}px monospace`;
+      ctx.fillText(d.label,bx+bw/2,by+bh/2+5);
+    });
+    // カーソル矢印
+    const selD=DIFF_PRESETS[this.diffIdx];
+    const selBx=bx0+this.diffIdx*(bw+gap);
+    ctx.fillStyle=selD.color;ctx.font='14px monospace';
+    ctx.fillText('▲',selBx+bw/2,CH/2+18-6);
+    // 操作説明
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#ffc';ctx.font='bold 12px monospace';
+    if(Math.floor(t/35)%2===0)ctx.fillText('Z / SPACE でスタート',CW/2,CH/2+74);
+    ctx.fillStyle='#446';ctx.font='10px monospace';
+    ctx.fillText('← → で難易度選択',CW/2,CH/2+92);
+    // 選択中難易度の詳細
+    ctx.fillStyle=selD.color;ctx.font='10px monospace';
+    const info={easy:'残機5・ボム5  ライフ回復多め',normal:'残機3・ボム3  標準バランス',hard:'残機2・ボム2  高速弾幕・回復少'};
+    ctx.fillText(info[selD.id],CW/2,CH/2+110);
+    // 操作一覧
+    ctx.fillStyle='#446';ctx.font='10px monospace';
+    ['Arrow/WASD : Move','Z/Space : Shot  X : Bomb  Shift : Focus'].forEach((line,i)=>ctx.fillText(line,CW/2,CH/2+135+i*15));
     if(this.hiScore>0){ctx.fillStyle='#aac';ctx.font='bold 11px monospace';ctx.fillText('HI SCORE: '+String(this.hiScore).padStart(8,'0'),CW/2,CH-40);}
     ctx.fillStyle='#336';ctx.font='9px monospace';ctx.fillText('© 2025 Phantom Kagura',CW/2,CH-20);
   }
